@@ -23,7 +23,7 @@ app.add_middleware(
     allow_origins=allow_origins,
     # Allow Vercel preview deploy URLs like:
     # https://findadoctorfrontend-git-branch-mz-314.vercel.app
-    allow_origin_regex=r"^https:\/\/findadoctorfrontend(-.+)?\.vercel\.app$",
+    allow_origin_regex=r"^https://findadoctorfrontend(-.+)?\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
