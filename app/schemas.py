@@ -25,10 +25,10 @@ class UserRegister(BaseModel):
     hospital_name:        Optional[str] = None
     hospital_city_id:     Optional[int] = None
     hospital_address:     Optional[str] = None
-    hospital_budget_tier: Optional[str] = None
+    hospital_budget_tier: Optional[BudgetTier] = None
     hospital_description: Optional[str] = None
     hospital_phone:       Optional[str] = None
-    hospital_email:       Optional[str] = None
+    hospital_email:       Optional[EmailStr] = None
     hospital_website:     Optional[str] = None
 
 class UserLogin(BaseModel):

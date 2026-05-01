@@ -60,10 +60,13 @@ def require_role(*roles):
 
 @router.post("/register", response_model=UserOut, status_code=201)
 def register(payload: UserRegister, db: Session = Depends(get_db)):
-    # Staff cannot self-register
+    # These roles cannot self-register
     if payload.role.value == "staff":
         raise HTTPException(status_code=400,
-                            detail="Staff accounts cannot be self-registered")
+                            detail="Staff accounts are provisioned by the company")
+    if payload.role.value == "doctor":
+        raise HTTPException(status_code=400,
+                            detail="Doctor accounts are created by your hospital admin")
 
     existing = db.query(models.User).filter(
         models.User.email == payload.email).first()
@@ -122,6 +125,10 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
                 status_code=400,
                 detail=f"Missing required hospital fields: {', '.join(missing)}"
             )
+        city = db.query(models.City).filter(
+            models.City.id == payload.hospital_city_id).first()
+        if not city:
+            raise HTTPException(status_code=400, detail="Invalid city_id")
         hospital = models.Hospital(
             name=payload.hospital_name,
             city_id=payload.hospital_city_id,
