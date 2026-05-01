@@ -64,9 +64,6 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
     if payload.role.value == "staff":
         raise HTTPException(status_code=400,
                             detail="Staff accounts are provisioned by the company")
-    if payload.role.value == "doctor":
-        raise HTTPException(status_code=400,
-                            detail="Doctor accounts are created by your hospital admin")
 
     existing = db.query(models.User).filter(
         models.User.email == payload.email).first()
