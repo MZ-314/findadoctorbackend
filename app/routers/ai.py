@@ -1,15 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from typing import Optional
 import os, json
 from groq import Groq
 from app.db import get_db
 from app import models
-from app.schemas import AIRecommendRequest, AIRecommendResponse, DoctorListItem
+from app.schemas import AIRecommendRequest, AIRecommendResponse
 from app.routers.doctors import doctor_to_list_item
 
 router = APIRouter(prefix="/ai", tags=["AI"])
-
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 
@@ -18,7 +16,6 @@ def ai_recommend(
     payload: AIRecommendRequest,
     db: Session = Depends(get_db)
 ):
-    # Fetch all approved doctors with their hospital info
     q = (db.query(models.Doctor)
          .join(models.Doctor.hospital)
          .options(
@@ -42,7 +39,6 @@ def ai_recommend(
         raise HTTPException(status_code=404,
                             detail="No doctors found matching your filters")
 
-    # Build context for Groq
     doctor_context = []
     for d in doctors:
         doctor_context.append({
@@ -51,36 +47,33 @@ def ai_recommend(
             "specialisation":   d.specialisation,
             "experience_years": d.experience_years,
             "bio":              d.bio or "",
-            "education":        d.education or "",
-            "languages":        d.languages or "",
             "avg_rating":       d.avg_rating,
             "availability":     d.availability.value,
             "hospital":         d.hospital.name if d.hospital else "",
-            "hospital_desc":    d.hospital.description or "" if d.hospital else "",
             "city":             d.hospital.city.name if d.hospital else "",
-            "budget_tier":      d.hospital.budget_tier.value if d.hospital else "",
             "consultation_fee": d.consultation_fee,
         })
 
     prompt = f"""
-You are a medical recommendation assistant for FindADoctor, a platform in India.
+You are a medical recommendation assistant for Docfolio, a healthcare platform in India.
 
-A patient has described their problem:
-"{payload.problem_description}"
+Patient's problem: "{payload.problem_description}"
 
-Here are the available doctors:
+Available doctors (ONLY choose from this list, ONLY use their exact IDs):
 {json.dumps(doctor_context, indent=2)}
 
-Your task:
-1. Identify the most relevant medical specialisation for this problem
-2. Select the top 3 most suitable doctors based on specialisation match, experience, rating, bio, and availability
-3. Return their IDs and a brief explanation of why they are recommended
+Rules:
+1. First identify the correct medical specialisation for this problem
+2. Select ONLY doctors whose specialisation matches that identified specialisation
+3. From those matching doctors, pick the top 3 based on: availability (green first), experience, rating
+4. NEVER recommend a doctor whose specialisation does not match the identified specialisation
+5. If fewer than 3 doctors match the specialisation, return only the ones that do
 
-Respond ONLY with a valid JSON object in this exact format:
+Respond ONLY with this exact JSON format, no other text:
 {{
   "suggested_specialisation": "Cardiologist",
-  "recommended_doctor_ids": [1, 5, 12],
-  "explanation": "Based on your symptoms of chest pain and shortness of breath, you need a Cardiologist. These doctors were selected for their expertise in cardiac conditions, high ratings, and current availability."
+  "recommended_doctor_ids": [1, 5, 10],
+  "explanation": "Brief explanation of why these doctors were chosen."
 }}
 """
 
@@ -90,19 +83,18 @@ Respond ONLY with a valid JSON object in this exact format:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a medical recommendation assistant. You always respond with valid JSON only, no markdown, no extra text."
+                    "content": "You are a medical recommendation assistant. You respond ONLY with valid JSON. No markdown, no backticks, no extra text whatsoever."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            max_tokens=1000,
-            temperature=0.3
+            max_tokens=500,
+            temperature=0.1
         )
         text = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
-        if text.startswith("```"):
+        if "```" in text:
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
@@ -115,11 +107,17 @@ Respond ONLY with a valid JSON object in this exact format:
     explanation     = result.get("explanation", "")
     suggested_spec  = result.get("suggested_specialisation", "")
 
-    recommended_doctors = [d for d in doctors if d.id in recommended_ids]
-    recommended_doctors.sort(key=lambda d: recommended_ids.index(d.id)
-                             if d.id in recommended_ids else 99)
+    # Hard filter: only return doctors whose specialisation matches
+    recommended_doctors = [
+        d for d in doctors
+        if d.id in recommended_ids
+        and d.specialisation.lower() == suggested_spec.lower()
+    ]
+    recommended_doctors.sort(
+        key=lambda d: recommended_ids.index(d.id)
+        if d.id in recommended_ids else 99
+    )
 
-    # Get unique hospitals of recommended doctors
     seen_hosp = set()
     recommended_hospitals = []
     for d in recommended_doctors:
