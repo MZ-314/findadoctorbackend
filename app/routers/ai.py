@@ -84,10 +84,10 @@ AVAILABLE DOCTORS (these are the ONLY doctors you can recommend):
 {json.dumps(doctor_context, indent=2)}
 
 YOUR TASK:
-1. Read the patient's description carefully and identify the correct medical specialisation
-2. From the available doctors list above, find doctors whose specialisation matches
+1. Read the patient's description carefully and identify the correct medical specialisation and location. For example, if the patient says "I have chest pain and shortness of breath", the specialisation is likely "Cardiologist". If they say "I have a skin rash that won't go away", the specialisation is likely "Dermatologist". If the description is too vague to determine a specialisation, set suggested_specialisation to "unclear".
+2. From the available doctors list above, find doctors whose specialisation and location matches
 3. Rank them by: availability (green first), then experience, then rating
-4. Return EXACTLY the top 3 matching doctors by their IDs
+4. Return EXACTLY the top 3 matching doctors by their IDs. Do NOT recommend doctors that do not match the specialisation or city (if city was specified). If fewer than 3 doctors match, return only those that match — do not fill slots with wrong specialisations.
 
 STRICT RULES:
 - You MUST only recommend doctors from the list above
