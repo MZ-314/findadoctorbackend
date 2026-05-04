@@ -4,13 +4,12 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app import models
 from app.schemas import (
-    UserRegister, UserLogin, StaffLogin,
+    UserRegister, UserLogin,
     UserOut, Token, ChangePassword
 )
 from app.utils.auth import (
     hash_password, verify_password,
-    create_access_token, decode_token,
-    verify_staff_credentials
+    create_access_token, decode_token
 )
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -39,14 +38,6 @@ def get_current_user(
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or inactive")
     return user
-
-def get_current_staff(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
-) -> dict:
-    payload = decode_token(credentials.credentials)
-    if not payload or payload.get("role") != "staff":
-        raise HTTPException(status_code=403, detail="Staff access required")
-    return payload
 
 def require_role(*roles):
     def checker(current_user: models.User = Depends(get_current_user)):
@@ -166,18 +157,6 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
     return {"access_token": token, "role": user.role.value, "name": user.name}
 
 
-@router.post("/staff/login", response_model=Token)
-def staff_login(payload: StaffLogin):
-    staff = verify_staff_credentials(payload.username, payload.password)
-    if not staff:
-        raise HTTPException(status_code=401,
-                            detail="Invalid staff credentials")
-    token = create_access_token({
-        "role":     "staff",
-        "username": staff["username"],
-        "city":     staff["city"]
-    })
-    return {"access_token": token, "role": "staff", "name": staff["username"]}
 
 
 # ── Me, Change Password, Delete Account ───────────────────────────────────────

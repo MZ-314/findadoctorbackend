@@ -7,24 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY                 = os.getenv("SECRET_KEY") or ""
-ALGORITHM                  = os.getenv("ALGORITHM", "HS256")
+SECRET_KEY                  = os.getenv("SECRET_KEY") or ""
+ALGORITHM                   = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
-
-def _build_staff_credentials() -> dict:
-    creds = {}
-    entries = [
-        ("Hyderabad", os.getenv("STAFF_HYD_USERNAME"), os.getenv("STAFF_HYD_PASSWORD")),
-        ("Pune", os.getenv("STAFF_PUN_USERNAME"), os.getenv("STAFF_PUN_PASSWORD")),
-        ("Guwahati", os.getenv("STAFF_GHY_USERNAME"), os.getenv("STAFF_GHY_PASSWORD")),
-    ]
-    for city, username, password in entries:
-        if username and password:
-            creds[username] = {"password": password, "city": city}
-    return creds
-
-
-STAFF_CREDENTIALS = _build_staff_credentials()
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -51,9 +36,3 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
-
-def verify_staff_credentials(username: str, password: str) -> Optional[dict]:
-    staff = STAFF_CREDENTIALS.get(username)
-    if staff and staff["password"] == password:
-        return {"username": username, "city": staff["city"]}
-    return None

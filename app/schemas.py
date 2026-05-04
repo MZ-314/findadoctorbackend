@@ -257,3 +257,21 @@ class AIRecommendResponse(BaseModel):
     recommended_hospitals: List[HospitalOut]
     explanation:           str
     suggested_specialisation: str
+
+class CompanyAdminLogin(BaseModel):
+    email:    EmailStr
+    password: str
+
+class CompanyAdminOut(BaseModel):
+    id:         int
+    name:       str
+    email:      str
+    city_id:    Optional[int]
+    is_active:  bool
+    created_at: datetime
+    class Config:
+        from_attributes = True
+
+class CompanyAdminChangePassword(BaseModel):
+    current_password: str
+    new_password:     str

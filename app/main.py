@@ -3,9 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import auth, doctors, patients, hospitals, staff, ai
 
-app = FastAPI(title="FindADoctor API", version="2.0")
-
-origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
+app = FastAPI(title="Docfolio API", version="2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -14,7 +12,7 @@ app.add_middleware(
         "http://localhost:3000",
         "https://findadoctorfrontend.vercel.app",
     ],
-    allow_origin_regex=r"^https://findadoctorfrontend(-.+)?\.vercel\.app$",
+    allow_origin_regex=r"^https://(findadoctorfrontend|docfolio-staff)(-.+)?\.vercel\.app$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,4 +27,4 @@ app.include_router(ai.router)
 
 @app.get("/")
 def root():
-    return {"message": "FindADoctor API v2.0 is running"}
+    return {"message": "Docfolio API v2.0 is running"}
