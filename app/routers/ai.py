@@ -88,6 +88,9 @@ YOUR TASK:
 2. From the available doctors list above, find doctors whose specialisation and location matches
 3. Rank them by: availability (green first), then experience, then rating
 4. Return EXACTLY the top 3 matching doctors by their IDs. Do NOT recommend doctors that do not match the specialisation or city (if city was specified). If fewer than 3 doctors match, return only those that match — do not fill slots with wrong specialisations.
+5. If the user asks for a doctor in city A or city B, DO NOT recommend doctors from city C, even if they are a perfect match on specialisation. The city filter is a hard requirement. Only recommend doctors from both city A and city B if the user specified both cities as acceptable. If the user specified only city A, only recommend doctors from city A.
+6. Most importantly, FOLLOW THE STRICT RULES BELOW. DO NOT RECOMMEND DOCTORS THAT DO NOT STRICTLY MATCH THE SPECIALISATION AND CITY FILTERS.
+
 
 STRICT RULES:
 - You MUST only recommend doctors from the list above
