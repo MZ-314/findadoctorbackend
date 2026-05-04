@@ -16,6 +16,7 @@ def ai_recommend(
     payload: AIRecommendRequest,
     db: Session = Depends(get_db)
 ):
+    # Fetch doctors — apply city and budget filter BEFORE sending to AI
     q = (db.query(models.Doctor)
          .join(models.Doctor.hospital)
          .options(
@@ -36,9 +37,26 @@ def ai_recommend(
     doctors = q.all()
 
     if not doctors:
-        raise HTTPException(status_code=404,
-                            detail="No doctors found matching your filters")
+        raise HTTPException(
+            status_code=404,
+            detail="No approved doctors found matching your filters. Try a different city or budget."
+        )
 
+    # Get city name for context
+    city_name = None
+    if payload.city_id:
+        city = db.query(models.City).filter(models.City.id == payload.city_id).first()
+        city_name = city.name if city else None
+
+    # Validate that user actually described something meaningful
+    description = payload.problem_description.strip()
+    if len(description) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Please describe your symptoms in more detail so we can find the right doctor for you."
+        )
+
+    # Build minimal doctor context — only what AI needs
     doctor_context = []
     for d in doctors:
         doctor_context.append({
@@ -46,7 +64,7 @@ def ai_recommend(
             "name":             d.user.name,
             "specialisation":   d.specialisation,
             "experience_years": d.experience_years,
-            "bio":              d.bio or "",
+            "bio":              (d.bio or "")[:200],  # truncate to save tokens
             "avg_rating":       d.avg_rating,
             "availability":     d.availability.value,
             "hospital":         d.hospital.name if d.hospital else "",
@@ -54,28 +72,37 @@ def ai_recommend(
             "consultation_fee": d.consultation_fee,
         })
 
-    prompt = f"""
-You are a medical recommendation assistant for Docfolio, a healthcare platform in India.
+    city_instruction = f"The patient is looking for doctors in {city_name} ONLY. Do NOT recommend doctors from other cities." if city_name else "No city preference — recommend the best matches regardless of city."
 
-Patient's problem: "{payload.problem_description}"
+    prompt = f"""You are a medical recommendation assistant for Docfolio, a healthcare platform in India.
 
-Available doctors (ONLY choose from this list, ONLY use their exact IDs):
+PATIENT'S EXACT DESCRIPTION: "{description}"
+
+{city_instruction}
+
+AVAILABLE DOCTORS (these are the ONLY doctors you can recommend):
 {json.dumps(doctor_context, indent=2)}
 
-Rules:
-1. First identify the correct medical specialisation for this problem
-2. Select ONLY doctors whose specialisation matches that identified specialisation
-3. From those matching doctors, pick the top 3 based on: availability (green first), experience, rating
-4. NEVER recommend a doctor whose specialisation does not match the identified specialisation
-5. If fewer than 3 doctors match the specialisation, return only the ones that do
+YOUR TASK:
+1. Read the patient's description carefully and identify the correct medical specialisation
+2. From the available doctors list above, find doctors whose specialisation matches
+3. Rank them by: availability (green first), then experience, then rating
+4. Return EXACTLY the top 3 matching doctors by their IDs
 
-Respond ONLY with this exact JSON format, no other text:
+STRICT RULES:
+- You MUST only recommend doctors from the list above
+- You MUST only recommend doctors whose specialisation directly matches the patient's condition
+- If the patient selected a city, ALL recommended doctors MUST be from that city
+- If fewer than 3 doctors match, return only those that match — do not fill slots with wrong specialisations
+- If the description is too vague to identify a specialisation, set suggested_specialisation to "unclear"
+- Never invent or assume doctors not in the list
+
+Respond ONLY with valid JSON, no markdown, no explanation outside the JSON:
 {{
   "suggested_specialisation": "Cardiologist",
-  "recommended_doctor_ids": [1, 5, 10],
-  "explanation": "Brief explanation of why these doctors were chosen."
-}}
-"""
+  "recommended_doctor_ids": [18],
+  "explanation": "Based on your chest pain, you need a Cardiologist. Only Dr. Bhaskar Bora is available in Guwahati with this specialisation."
+}}"""
 
     try:
         response = client.chat.completions.create(
@@ -83,15 +110,15 @@ Respond ONLY with this exact JSON format, no other text:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a medical recommendation assistant. You respond ONLY with valid JSON. No markdown, no backticks, no extra text whatsoever."
+                    "content": "You are a medical recommendation assistant. You respond ONLY with valid JSON. No markdown, no backticks, no extra text. You strictly follow the rules given to you."
                 },
                 {
                     "role": "user",
                     "content": prompt
                 }
             ],
-            max_tokens=500,
-            temperature=0.1
+            max_tokens=400,
+            temperature=0.05  # as close to deterministic as possible
         )
         text = response.choices[0].message.content.strip()
         if "```" in text:
@@ -99,20 +126,45 @@ Respond ONLY with this exact JSON format, no other text:
             if text.startswith("json"):
                 text = text[4:]
         result = json.loads(text.strip())
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="AI returned an invalid response. Please try again.")
     except Exception as e:
-        raise HTTPException(status_code=500,
-                            detail=f"AI recommendation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"AI recommendation failed: {str(e)}")
 
+    suggested_spec = result.get("suggested_specialisation", "")
     recommended_ids = result.get("recommended_doctor_ids", [])
-    explanation     = result.get("explanation", "")
-    suggested_spec  = result.get("suggested_specialisation", "")
+    explanation = result.get("explanation", "")
 
-    # Hard filter: only return doctors whose specialisation matches
+    # If AI says unclear, reject with helpful message
+    if suggested_spec.lower() == "unclear":
+        raise HTTPException(
+            status_code=400,
+            detail="Your description is too vague. Please describe your symptoms in more detail — for example: 'I have chest pain and shortness of breath' or 'I have a skin rash that won't go away'."
+        )
+
+    # HARD FILTER — only return doctors that:
+    # 1. Are in the recommended_ids list
+    # 2. Have the correct specialisation
+    # 3. Are in the correct city (if city was specified)
     recommended_doctors = [
         d for d in doctors
         if d.id in recommended_ids
         and d.specialisation.lower() == suggested_spec.lower()
     ]
+
+    # If city was selected, enforce city filter on final results too
+    if payload.city_id:
+        recommended_doctors = [
+            d for d in recommended_doctors
+            if d.hospital and d.hospital.city_id == payload.city_id
+        ]
+
+    if not recommended_doctors:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No {suggested_spec}s found{f' in {city_name}' if city_name else ''}. Try searching without a city filter or choose a different specialisation."
+        )
+
     recommended_doctors.sort(
         key=lambda d: recommended_ids.index(d.id)
         if d.id in recommended_ids else 99
@@ -126,8 +178,7 @@ Respond ONLY with this exact JSON format, no other text:
             recommended_hospitals.append(d.hospital)
 
     return AIRecommendResponse(
-        recommended_doctors=[doctor_to_list_item(d, doctors)
-                             for d in recommended_doctors],
+        recommended_doctors=[doctor_to_list_item(d, doctors) for d in recommended_doctors],
         recommended_hospitals=recommended_hospitals,
         explanation=explanation,
         suggested_specialisation=suggested_spec
